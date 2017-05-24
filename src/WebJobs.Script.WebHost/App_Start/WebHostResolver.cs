@@ -164,8 +164,12 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost
                 IsSelfHost = settings.IsSelfHost
             };
 
-            scriptHostConfig.HostConfig.HostId = Utility.GetDefaultHostId(_settingsManager, scriptHostConfig);
+            if (settings.LoggerFactory != null)
+            {
+                scriptHostConfig.HostConfig.LoggerFactory = settings.LoggerFactory;
+            }
 
+            scriptHostConfig.HostConfig.HostId = Utility.GetDefaultHostId(_settingsManager, scriptHostConfig);
             return scriptHostConfig;
         }
 
