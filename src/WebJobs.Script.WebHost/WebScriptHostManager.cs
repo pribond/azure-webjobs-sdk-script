@@ -27,6 +27,7 @@ using Microsoft.Azure.WebJobs.Script.Diagnostics;
 using Microsoft.Azure.WebJobs.Script.Eventing;
 using Microsoft.Azure.WebJobs.Script.WebHost.Diagnostics;
 using Microsoft.Extensions.Logging;
+using System.Web.Http.Controllers;
 
 namespace Microsoft.Azure.WebJobs.Script.WebHost
 {
@@ -180,6 +181,12 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost
                     }))
                 {
                     await Instance.CallAsync(function.Name, arguments, cancellationToken);
+
+                    // TODO: temp
+                    if (arguments.ContainsKey(ScriptConstants.AzureFunctionsHttpResponseKey))
+                    {
+                        return (HttpResponseMessage)arguments[ScriptConstants.AzureFunctionsHttpResponseKey];
+                    }
                 }
             }
 
@@ -328,8 +335,16 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost
 
         private static Dictionary<string, object> GetFunctionArguments(FunctionDescriptor function, HttpRequestMessage request)
         {
-            ParameterDescriptor triggerParameter = function.Parameters.First(p => p.IsTrigger);
             Dictionary<string, object> arguments = new Dictionary<string, object>();
+
+            if (function.Metadata.ScriptType == ScriptType.Proxy)
+            {
+                // TODO: proper name
+                arguments.Add(ScriptConstants.AzureFunctionsProxyHttpRequestKey, request);
+                return arguments;
+            }
+
+            ParameterDescriptor triggerParameter = function.Parameters.First(p => p.IsTrigger);
 
             if (triggerParameter.Type != typeof(HttpRequestMessage))
             {
@@ -489,19 +504,36 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost
 
             foreach (var function in functions)
             {
-                var httpTrigger = function.GetTriggerAttributeOrNull<HttpTriggerAttribute>();
-                if (httpTrigger != null)
+                if (function.InputBindings != null)
                 {
-                    IHttpRoute httpRoute = null;
-                    IEnumerable<HttpMethod> httpMethods = null;
-                    if (httpTrigger.Methods != null)
+                    var httpTrigger = function.GetTriggerAttributeOrNull<HttpTriggerAttribute>();
+                    if (httpTrigger != null)
                     {
-                        httpMethods = httpTrigger.Methods.Select(p => new HttpMethod(p)).ToArray();
+                        IHttpRoute httpRoute = null;
+                        IEnumerable<HttpMethod> httpMethods = null;
+                        if (httpTrigger.Methods != null)
+                        {
+                            httpMethods = httpTrigger.Methods.Select(p => new HttpMethod(p)).ToArray();
+                        }
+                        if (httpRouteFactory.TryAddRoute(function.Metadata.Name, httpTrigger.Route, httpMethods, _httpRoutes, out httpRoute))
+                        {
+                            _httpFunctions.Add(httpRoute, function);
+                        }
                     }
-                    if (httpRouteFactory.TryAddRoute(function.Metadata.Name, httpTrigger.Route, httpMethods, _httpRoutes, out httpRoute))
-                    {
-                        _httpFunctions.Add(httpRoute, function);
-                    }
+                }
+                else if (function.Metadata.UrlTemplate != null) 
+                {
+                    // Function Proxy
+                    var constraintResolver = new DefaultInlineConstraintResolver();
+                    List<HttpActionDescriptor> actionDescriptors = new List<HttpActionDescriptor>();
+                    var routeFactoryContext = new DirectRouteFactoryContext(string.Empty, actionDescriptors, constraintResolver, false);
+                    var routeBuilder = routeFactoryContext.CreateBuilder(function.Metadata.UrlTemplate.TrimStart('/'));
+                    var constraints = routeBuilder.Constraints;
+                    constraints.Add("httpMethod", new HttpMethodConstraint(function.Metadata.Method));
+
+                    var route = _httpRoutes.CreateRoute(routeBuilder.Template, routeBuilder.Defaults, constraints);
+                    _httpRoutes.Add(function.Metadata.Name, route);
+                    _httpFunctions.Add(route, function);
                 }
             }
         }

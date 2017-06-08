@@ -15,6 +15,8 @@ using Microsoft.Azure.WebJobs.Script.Binding;
 using Microsoft.Azure.WebJobs.Script.Description;
 using Microsoft.Azure.WebJobs.Script.WebHost.Filters;
 using Microsoft.Azure.WebJobs.Script.WebHost.WebHooks;
+using System.Web;
+using Microsoft.Azure.AppService.AdvancedRouting.Gateway.Client;
 
 namespace Microsoft.Azure.WebJobs.Script.WebHost.Controllers
 {
@@ -35,6 +37,7 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost.Controllers
         public override async Task<HttpResponseMessage> ExecuteAsync(HttpControllerContext controllerContext, CancellationToken cancellationToken)
         {
             var request = controllerContext.Request;
+
             var function = _scriptHostManager.GetHttpFunctionOrNull(request);
             if (function == null)
             {
@@ -71,8 +74,13 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost.Controllers
 
         private async Task<HttpResponseMessage> ProcessRequestAsync(HttpRequestMessage request, FunctionDescriptor function, CancellationToken cancellationToken)
         {
-            var httpTrigger = function.GetTriggerAttributeOrNull<HttpTriggerAttribute>();
-            bool isWebHook = !string.IsNullOrEmpty(httpTrigger.WebHookType);
+            HttpTriggerAttribute httpTrigger = null;
+            bool isWebHook = false;
+            if (function.InputBindings != null)
+            {
+                httpTrigger = function.GetTriggerAttributeOrNull<HttpTriggerAttribute>();
+                isWebHook = !string.IsNullOrEmpty(httpTrigger.WebHookType);
+            }
             var authorizationLevel = request.GetAuthorizationLevel();
             HttpResponseMessage response = null;
 
@@ -102,7 +110,7 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost.Controllers
             else
             {
                 // Authorize
-                if (!request.HasAuthorizationLevel(httpTrigger.AuthLevel))
+                if (httpTrigger != null && !request.HasAuthorizationLevel(httpTrigger.AuthLevel))
                 {
                     return new HttpResponseMessage(HttpStatusCode.Unauthorized);
                 }

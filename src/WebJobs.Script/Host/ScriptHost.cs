@@ -18,6 +18,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.ApplicationInsights.WindowsServer.Channel.Implementation;
+using Microsoft.Azure.AppService.AdvancedRouting.Gateway.Client;
 using Microsoft.Azure.WebJobs.Extensions;
 using Microsoft.Azure.WebJobs.Host;
 using Microsoft.Azure.WebJobs.Host.Config;
@@ -63,6 +64,8 @@ namespace Microsoft.Azure.WebJobs.Script
         private ILogger _startupLogger;
         private FileWatcherEventSource _fileEventSource;
         private IDisposable _fileEventsSubscription;
+
+        private static IProxyClient _proxyClient;
 
         protected internal ScriptHost(IScriptHostEnvironment environment,
             IScriptEventManager eventManager,
@@ -238,6 +241,12 @@ namespace Microsoft.Azure.WebJobs.Script
 
         public virtual async Task CallAsync(string method, Dictionary<string, object> arguments, CancellationToken cancellationToken = default(CancellationToken))
         {
+            if (arguments.ContainsKey(ScriptConstants.AzureFunctionsProxyHttpRequestKey))
+            {
+                await _proxyClient.CallAsync(arguments);
+                return;
+            }
+
             // TODO: Validate inputs
             // TODO: Cache this lookup result
             method = method.ToLowerInvariant();
@@ -868,6 +877,47 @@ namespace Microsoft.Azure.WebJobs.Script
             return functions;
         }
 
+        public static Collection<FunctionMetadata> ReadProxyMetadata(ScriptHostConfiguration config, TraceWriter traceWriter, ILogger logger, Dictionary<string, Collection<string>> functionErrors, ScriptSettingsManager settingsManager = null)
+        {
+            var functions = new Collection<FunctionMetadata>();
+            settingsManager = settingsManager ?? ScriptSettingsManager.Instance;
+
+            var proxyPath = Path.Combine(config.RootScriptPath, "proxies.json");
+
+            if (File.Exists(proxyPath))
+            {
+                string proxyJson = File.ReadAllText(proxyPath);
+
+                _proxyClient = ProxyClientFactory.Create(proxyJson);
+                var routes = _proxyClient.GetProxyData();
+
+                foreach (var route in routes.Routes)
+                {
+                    string functionName = null;
+
+                    try
+                    {
+                        var proxyMetadata = new FunctionMetadata();
+
+                        proxyMetadata.Name = route.Id.ToString();
+                        proxyMetadata.ScriptType = ScriptType.Proxy;
+
+                        proxyMetadata.Method = route.Method;
+                        proxyMetadata.UrlTemplate = route.UrlTemplate;
+
+                        functions.Add(proxyMetadata);
+                    }
+                    catch (Exception ex)
+                    {
+                        // log any unhandled exceptions and continue
+                        AddFunctionError(functionErrors, functionName, Utility.FlattenException(ex, includeSource: false), isFunctionShortName: true);
+                    }
+                }
+            }
+
+            return functions;
+        }
+
         internal static bool TryParseFunctionMetadata(string functionName, JObject functionConfig, TraceWriter traceWriter, ILogger logger, string scriptDirectory,
         ScriptSettingsManager settingsManager, out FunctionMetadata functionMetadata, out string error, IFileSystem fileSystem = null)
         {
@@ -1033,6 +1083,13 @@ namespace Microsoft.Azure.WebJobs.Script
         private Collection<FunctionDescriptor> GetFunctionDescriptors()
         {
             var functions = ReadFunctionMetadata(ScriptConfig, TraceWriter, _startupLogger, FunctionErrors, _settingsManager);
+            var proxies = ReadProxyMetadata(ScriptConfig, TraceWriter, _startupLogger, FunctionErrors, _settingsManager);
+
+            // TODO: temp
+            foreach (var proxy in proxies)
+            {
+                functions.Add(proxy);
+            }
 
             var descriptorProviders = new List<FunctionDescriptorProvider>()
                 {
@@ -1042,8 +1099,9 @@ namespace Microsoft.Azure.WebJobs.Script
 #endif
                     new DotNetFunctionDescriptorProvider(this, ScriptConfig),
 #if FEATURE_POWERSHELL
-                    new PowerShellFunctionDescriptorProvider(this, ScriptConfig)
+                    new PowerShellFunctionDescriptorProvider(this, ScriptConfig),
 #endif
+                    new ProxyFunctionDescriptorProvider(this, ScriptConfig)
                 };
 
             return GetFunctionDescriptors(functions, descriptorProviders);
@@ -1086,21 +1144,25 @@ namespace Microsoft.Azure.WebJobs.Script
 
         internal static void ValidateFunction(FunctionDescriptor function, Dictionary<string, HttpTriggerAttribute> httpFunctions)
         {
-            var httpTrigger = function.GetTriggerAttributeOrNull<HttpTriggerAttribute>();
-            if (httpTrigger != null)
+            // TODO: InputBindings for triggers
+            if (function.InputBindings != null)
             {
-                ValidateHttpFunction(function.Name, httpTrigger);
-
-                // prevent duplicate/conflicting routes
-                foreach (var pair in httpFunctions)
+                var httpTrigger = function.GetTriggerAttributeOrNull<HttpTriggerAttribute>();
+                if (httpTrigger != null)
                 {
-                    if (HttpRoutesConflict(httpTrigger, pair.Value))
-                    {
-                        throw new InvalidOperationException($"The route specified conflicts with the route defined by function '{pair.Key}'.");
-                    }
-                }
+                    ValidateHttpFunction(function.Name, httpTrigger);
 
-                httpFunctions.Add(function.Name, httpTrigger);
+                    // prevent duplicate/conflicting routes
+                    foreach (var pair in httpFunctions)
+                    {
+                        if (HttpRoutesConflict(httpTrigger, pair.Value))
+                        {
+                            throw new InvalidOperationException($"The route specified conflicts with the route defined by function '{pair.Key}'.");
+                        }
+                    }
+
+                    httpFunctions.Add(function.Name, httpTrigger);
+                }
             }
         }
 

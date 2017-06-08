@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 
 namespace Microsoft.Azure.WebJobs.Script.Description
 {
@@ -17,6 +18,10 @@ namespace Microsoft.Azure.WebJobs.Script.Description
         }
 
         public string Name { get; set; }
+
+        public HttpMethod Method { get; set; }
+
+        public string UrlTemplate { get; set; }
 
         /// <summary>
         /// Gets or sets the primary entry point for the function (to disambiguate if there are multiple
