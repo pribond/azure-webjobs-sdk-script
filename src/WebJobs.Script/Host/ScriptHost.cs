@@ -65,7 +65,7 @@ namespace Microsoft.Azure.WebJobs.Script
         private FileWatcherEventSource _fileEventSource;
         private IDisposable _fileEventsSubscription;
 
-        private static IProxyClient _proxyClient;
+        private IProxyClient _proxyClient;
 
         protected internal ScriptHost(IScriptHostEnvironment environment,
             IScriptEventManager eventManager,
@@ -936,7 +936,7 @@ namespace Microsoft.Azure.WebJobs.Script
             return functions;
         }
 
-        public static Collection<FunctionMetadata> ReadProxyMetadata(ScriptHostConfiguration config, TraceWriter traceWriter, ILogger logger, Dictionary<string, Collection<string>> functionErrors, ScriptSettingsManager settingsManager = null)
+        public Collection<FunctionMetadata> ReadProxyMetadata(ScriptHostConfiguration config, TraceWriter traceWriter, ILogger logger, Dictionary<string, Collection<string>> functionErrors, ScriptSettingsManager settingsManager = null)
         {
             var proxies = new Collection<FunctionMetadata>();
             settingsManager = settingsManager ?? ScriptSettingsManager.Instance;
@@ -956,7 +956,7 @@ namespace Microsoft.Azure.WebJobs.Script
 
                     try
                     {
-                        var proxyMetadata = new FunctionMetadata();
+                        var proxyMetadata = new ProxyMetadata();
 
                         proxyMetadata.Name = route.Id.ToString();
                         proxyMetadata.ScriptType = ScriptType.Proxy;
@@ -1574,8 +1574,9 @@ namespace Microsoft.Azure.WebJobs.Script
             // A full host shutdown is performed when an assembly (.dll, .exe) in a watched directory is modified
             string fileName = Path.GetFileName(e.Name);
             if (isWatchedDirectory ||
-                ((string.Compare(fileName, ScriptConstants.HostMetadataFileName, StringComparison.OrdinalIgnoreCase) == 0) ||
-                string.Compare(fileName, ScriptConstants.FunctionMetadataFileName, StringComparison.OrdinalIgnoreCase) == 0) ||
+                (string.Compare(fileName, ScriptConstants.HostMetadataFileName, StringComparison.OrdinalIgnoreCase) == 0 ||
+                 string.Compare(fileName, ScriptConstants.FunctionMetadataFileName, StringComparison.OrdinalIgnoreCase) == 0 ||
+                 string.Compare(fileName, ScriptConstants.ProxyMetadataFileName, StringComparison.OrdinalIgnoreCase) == 0) ||
                 !_directorySnapshot.SequenceEqual(Directory.EnumerateDirectories(ScriptConfig.RootScriptPath)))
             {
                 bool shutdown = false;

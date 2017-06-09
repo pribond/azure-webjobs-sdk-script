@@ -24,7 +24,11 @@ namespace Microsoft.Azure.WebJobs.Script.Description
 
             functionDescriptor = null;
 
-            // var binding = new HttpBinding()
+            if (!(functionMetadata is ProxyMetadata))
+            {
+                return false;
+            }
+
             if (functionMetadata.ScriptType == ScriptType.Proxy)
             {
                 functionDescriptor = new FunctionDescriptor(functionMetadata.Name, null, functionMetadata, null, null, null, null);

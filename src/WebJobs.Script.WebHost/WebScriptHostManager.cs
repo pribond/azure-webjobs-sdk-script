@@ -525,12 +525,14 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost
                         }
                     }
                 }
-                else if (function.Metadata.UrlTemplate != null) 
+                else if (function.Metadata is ProxyMetadata) 
                 {
                     // Function Proxy
-                    var routeBuilder = routeFactoryContext.CreateBuilder(function.Metadata.UrlTemplate.TrimStart('/'));
+                    var proxyMetadata = (ProxyMetadata)function.Metadata;
+
+                    var routeBuilder = routeFactoryContext.CreateBuilder(proxyMetadata.UrlTemplate.TrimStart('/'));
                     var constraints = routeBuilder.Constraints;
-                    constraints.Add("httpMethod", new HttpMethodConstraint(function.Metadata.Method));
+                    constraints.Add("httpMethod", new HttpMethodConstraint(proxyMetadata.Method));
 
                     var route = _httpRoutes.CreateRoute(routeBuilder.Template, routeBuilder.Defaults, constraints);
                     _httpRoutes.Add(function.Metadata.Name, route);
