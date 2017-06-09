@@ -877,9 +877,68 @@ namespace Microsoft.Azure.WebJobs.Script
             return functions;
         }
 
-        public static Collection<FunctionMetadata> ReadProxyMetadata(ScriptHostConfiguration config, TraceWriter traceWriter, ILogger logger, Dictionary<string, Collection<string>> functionErrors, ScriptSettingsManager settingsManager = null)
+        public static Collection<FunctionMetadata> ReadProxyMetadataV2(ScriptHostConfiguration config, TraceWriter traceWriter, ILogger logger, Dictionary<string, Collection<string>> functionErrors, ScriptSettingsManager settingsManager = null)
         {
             var functions = new Collection<FunctionMetadata>();
+            settingsManager = settingsManager ?? ScriptSettingsManager.Instance;
+            Dictionary<string, string> proxyJsons = new Dictionary<string, string>();
+
+            foreach (var scriptDir in Directory.EnumerateDirectories(config.RootScriptPath))
+            {
+                string proxyName = null;
+
+                try
+                {
+                    // read the proxy config
+                    string proxyConfigPath = Path.Combine(scriptDir, ScriptConstants.ProxyMetadataFileName);
+                    if (!File.Exists(proxyConfigPath))
+                    {
+                        // not a proxy directory
+                        continue;
+                    }
+
+                    proxyName = Path.GetFileName(scriptDir);
+
+                    ValidateFunctionName(proxyName);
+
+                    string json = File.ReadAllText(proxyConfigPath);
+
+                    // TODO: proxy.json validation
+
+                    proxyJsons.Add(proxyName, json);
+
+                    //JObject functionConfig = JObject.Parse(json);
+
+                    //string functionError = null;
+                    //FunctionMetadata functionMetadata = null;
+                    //if (!TryParseFunctionMetadata(proxyName, functionConfig, traceWriter, logger, scriptDir, settingsManager, out functionMetadata, out functionError))
+                    //{
+                    //    // for functions in error, log the error and don't
+                    //    // add to the functions collection
+                    //    AddFunctionError(functionErrors, proxyName, functionError);
+                    //    continue;
+                    //}
+                    //else if (functionMetadata != null)
+                    //{
+                    //    functions.Add(functionMetadata);
+                    //}
+                }
+                catch (Exception ex)
+                {
+                    // log any unhandled exceptions and continue
+                    AddFunctionError(functionErrors, proxyName, Utility.FlattenException(ex, includeSource: false), isFunctionShortName: true);
+                }
+            }
+
+            //_proxyClient = ProxyClientFactory.Create(proxyJsons);
+            //var routes = _proxyClient.GetProxyData();
+
+            return functions;
+        }
+
+        public static Collection<FunctionMetadata> ReadProxyMetadata(ScriptHostConfiguration config, TraceWriter traceWriter, ILogger logger, Dictionary<string, Collection<string>> functionErrors, ScriptSettingsManager settingsManager = null)
+        {
+            var proxies = new Collection<FunctionMetadata>();
             settingsManager = settingsManager ?? ScriptSettingsManager.Instance;
 
             var proxyPath = Path.Combine(config.RootScriptPath, "proxies.json");
@@ -905,7 +964,7 @@ namespace Microsoft.Azure.WebJobs.Script
                         proxyMetadata.Method = route.Method;
                         proxyMetadata.UrlTemplate = route.UrlTemplate;
 
-                        functions.Add(proxyMetadata);
+                        proxies.Add(proxyMetadata);
                     }
                     catch (Exception ex)
                     {
@@ -915,7 +974,7 @@ namespace Microsoft.Azure.WebJobs.Script
                 }
             }
 
-            return functions;
+            return proxies;
         }
 
         internal static bool TryParseFunctionMetadata(string functionName, JObject functionConfig, TraceWriter traceWriter, ILogger logger, string scriptDirectory,

@@ -502,6 +502,10 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost
             _httpFunctions = new Dictionary<IHttpRoute, FunctionDescriptor>();
             _httpRoutes = new HttpRouteCollection();
 
+            var constraintResolver = new DefaultInlineConstraintResolver();
+            List<HttpActionDescriptor> actionDescriptors = new List<HttpActionDescriptor>();
+            var routeFactoryContext = new DirectRouteFactoryContext(string.Empty, actionDescriptors, constraintResolver, false);
+
             foreach (var function in functions)
             {
                 if (function.InputBindings != null)
@@ -524,9 +528,6 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost
                 else if (function.Metadata.UrlTemplate != null) 
                 {
                     // Function Proxy
-                    var constraintResolver = new DefaultInlineConstraintResolver();
-                    List<HttpActionDescriptor> actionDescriptors = new List<HttpActionDescriptor>();
-                    var routeFactoryContext = new DirectRouteFactoryContext(string.Empty, actionDescriptors, constraintResolver, false);
                     var routeBuilder = routeFactoryContext.CreateBuilder(function.Metadata.UrlTemplate.TrimStart('/'));
                     var constraints = routeBuilder.Constraints;
                     constraints.Add("httpMethod", new HttpMethodConstraint(function.Metadata.Method));
