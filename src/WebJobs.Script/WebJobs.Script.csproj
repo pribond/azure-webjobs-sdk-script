@@ -133,7 +133,8 @@
       <HintPath>..\..\packages\Microsoft.Azure.WebJobs.Extensions.DocumentDB.1.1.0-beta1-10449\lib\net45\Microsoft.Azure.WebJobs.Extensions.DocumentDB.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.Azure.WebJobs.Extensions.Http, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Microsoft.Azure.WebJobs.Extensions.Http.1.0.0-beta1-10449\lib\net45\Microsoft.Azure.WebJobs.Extensions.Http.dll</HintPath>
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\..\..\azure-webjobs-sdk-extensions\src\WebJobs.Extensions.Http\bin\Debug\Microsoft.Azure.WebJobs.Extensions.Http.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.Azure.WebJobs.Extensions.MobileApps, Version=1.1.0.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\..\packages\Microsoft.Azure.WebJobs.Extensions.MobileApps.1.1.0-beta1-10449\lib\net45\Microsoft.Azure.WebJobs.Extensions.MobileApps.dll</HintPath>
@@ -553,6 +554,7 @@
     <Compile Include="Host\IScriptHostFactory.cs" />
     <Compile Include="Diagnostics\NullTraceWriter.cs" />
     <Compile Include="IO\AutoRecoveringFileSystemWatcher.cs" />
+    <Compile Include="MyFuncExecutor.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Config\ScriptHostConfiguration.cs" />
     <Compile Include="Config\TypeLocator.cs" />

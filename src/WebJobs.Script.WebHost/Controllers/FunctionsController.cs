@@ -11,6 +11,7 @@ using System.Web.Http;
 using System.Web.Http.Controllers;
 using System.Web.Http.Dependencies;
 using Microsoft.Azure.WebJobs.Extensions.Http;
+using Microsoft.Azure.WebJobs.Host;
 using Microsoft.Azure.WebJobs.Script.Binding;
 using Microsoft.Azure.WebJobs.Script.Description;
 using Microsoft.Azure.WebJobs.Script.WebHost.Filters;
@@ -58,7 +59,33 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost.Controllers
 
             Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> processRequestHandler = async (req, ct) =>
             {
-                return await ProcessRequestAsync(req, function, ct);
+                HttpResponseMessage resp = null;
+                try
+                {
+                    resp = await ProcessRequestAsync(req, function, ct);
+                }
+                catch (FunctionInvocationException ex)
+                {
+                    // TODO: temp for schema validation
+                    if (ex.InnerException != null && ex.InnerException.InnerException != null)
+                    {
+                        var inner = ex.InnerException.InnerException as WebException;
+
+                        if (inner != null && inner.Status == WebExceptionStatus.UnknownError)
+                        {
+                            resp = req.CreateResponse(HttpStatusCode.BadRequest, inner.Message, "application/json");
+                        }
+                        else
+                        {
+                            throw;
+                        }
+                    }
+                    else
+                    {
+                        throw;
+                    }
+                }
+                return resp;
             };
             return await _scriptHostManager.HttpRequestManager.ProcessRequestAsync(request, processRequestHandler, cancellationToken);
         }

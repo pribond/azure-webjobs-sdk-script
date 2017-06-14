@@ -11,6 +11,7 @@ using System.Globalization;
 using System.IO;
 using System.IO.Abstractions;
 using System.Linq;
+using System.Net.Http;
 using System.Reactive.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -19,6 +20,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.ApplicationInsights.WindowsServer.Channel.Implementation;
 using Microsoft.Azure.AppService.AdvancedRouting.Gateway.Client;
+using Microsoft.Azure.AppService.AdvancedRouting.Proxy.Gateway;
 using Microsoft.Azure.WebJobs.Extensions;
 using Microsoft.Azure.WebJobs.Host;
 using Microsoft.Azure.WebJobs.Host.Config;
@@ -26,6 +28,7 @@ using Microsoft.Azure.WebJobs.Host.Indexers;
 using Microsoft.Azure.WebJobs.Host.Listeners;
 using Microsoft.Azure.WebJobs.Logging;
 using Microsoft.Azure.WebJobs.Logging.ApplicationInsights;
+using Microsoft.Azure.WebJobs.Script;
 using Microsoft.Azure.WebJobs.Script.Binding;
 using Microsoft.Azure.WebJobs.Script.Config;
 using Microsoft.Azure.WebJobs.Script.Description;
@@ -66,6 +69,7 @@ namespace Microsoft.Azure.WebJobs.Script
         private IDisposable _fileEventsSubscription;
 
         private IProxyClient _proxyClient;
+        private ILogger _proxyLogger;
 
         protected internal ScriptHost(IScriptHostEnvironment environment,
             IScriptEventManager eventManager,
@@ -243,7 +247,13 @@ namespace Microsoft.Azure.WebJobs.Script
         {
             if (arguments.ContainsKey(ScriptConstants.AzureFunctionsProxyHttpRequestKey))
             {
-                await _proxyClient.CallAsync(arguments);
+                IFuncExecutor myFunc = new MyFuncExecutor(ScriptConfig.HostConfig, this);
+
+                // await myFunc.ExecuteFuncAsync("httpreq", arguments, cancellationToken);
+                await _proxyClient.CallAsync(arguments, myFunc, _proxyLogger);
+
+                // await Post(arguments, cancellationToken);
+
                 return;
             }
 
@@ -254,6 +264,40 @@ namespace Microsoft.Azure.WebJobs.Script
             var methodInfo = type.GetMethods().SingleOrDefault(p => p.Name.ToLowerInvariant() == method);
 
             await CallAsync(methodInfo, arguments, cancellationToken);
+        }
+
+        private async Task Pre(Dictionary<string, object> arguments, CancellationToken cancellationToken)
+        {
+            string method = "httpreq";
+            Type type2 = ScriptConfig.HostConfig.TypeLocator.GetTypes().SingleOrDefault(p => p.Name == ScriptHost.GeneratedTypeName);
+            var methodInfo2 = type2.GetMethods().SingleOrDefault(p => p.Name.ToLowerInvariant() == method);
+
+            var firstParam = methodInfo2?.GetParameters()?.FirstOrDefault();
+            if (firstParam != null && firstParam.ParameterType == typeof(HttpRequestMessage))
+            {
+                arguments.Add(firstParam.Name, arguments[ScriptConstants.AzureFunctionsProxyHttpRequestKey]);
+            }
+
+            await CallAsync(methodInfo2, arguments, cancellationToken);
+
+            arguments[ScriptConstants.AzureFunctionsProxyHttpRequestKey] = arguments[firstParam.Name];
+        }
+
+        private async Task Post(Dictionary<string, object> arguments, CancellationToken cancellationToken)
+        {
+            string method = "httpres";
+            Type type2 = ScriptConfig.HostConfig.TypeLocator.GetTypes().SingleOrDefault(p => p.Name == ScriptHost.GeneratedTypeName);
+            var methodInfo2 = type2.GetMethods().SingleOrDefault(p => p.Name.ToLowerInvariant() == method);
+
+            var firstParam = methodInfo2?.GetParameters()?.FirstOrDefault();
+            if (firstParam != null && firstParam.ParameterType == typeof(HttpResponseMessage))
+            {
+                arguments.Add(firstParam.Name, arguments[ScriptConstants.AzureFunctionsHttpResponseKey]);
+            }
+
+            await CallAsync(methodInfo2, arguments, cancellationToken);
+
+            arguments[ScriptConstants.AzureFunctionsHttpResponseKey] = arguments[firstParam.Name];
         }
 
         protected virtual void Initialize()
@@ -877,9 +921,9 @@ namespace Microsoft.Azure.WebJobs.Script
             return functions;
         }
 
-        public static Collection<FunctionMetadata> ReadProxyMetadataV2(ScriptHostConfiguration config, TraceWriter traceWriter, ILogger logger, Dictionary<string, Collection<string>> functionErrors, ScriptSettingsManager settingsManager = null)
+        public Collection<FunctionMetadata> ReadProxyMetadataV2(ScriptHostConfiguration config, TraceWriter traceWriter, ILogger logger, Dictionary<string, Collection<string>> functionErrors, ScriptSettingsManager settingsManager = null)
         {
-            var functions = new Collection<FunctionMetadata>();
+            var proxies = new Collection<FunctionMetadata>();
             settingsManager = settingsManager ?? ScriptSettingsManager.Instance;
             Dictionary<string, string> proxyJsons = new Dictionary<string, string>();
 
@@ -930,10 +974,39 @@ namespace Microsoft.Azure.WebJobs.Script
                 }
             }
 
-            //_proxyClient = ProxyClientFactory.Create(proxyJsons);
-            //var routes = _proxyClient.GetProxyData();
+            ILoggerFactory loggerFactory = ScriptConfig.HostConfig.LoggerFactory;
+            ILogger proxyStartupLogger = loggerFactory.CreateLogger("Host.Proxies.Initialization");
 
-            return functions;
+            _proxyClient = ProxyClientFactory.Create(proxyJsons, proxyStartupLogger);
+            var routes = _proxyClient.GetProxyData();
+
+            // TODO: proper location
+            _proxyLogger = loggerFactory.CreateLogger("Host.Proxies.Runtime");
+
+            foreach (var route in routes.Routes)
+            {
+                string functionName = null;
+
+                try
+                {
+                    var proxyMetadata = new ProxyMetadata();
+
+                    proxyMetadata.Name = route.Id.ToString();
+                    proxyMetadata.ScriptType = ScriptType.Proxy;
+
+                    proxyMetadata.Method = route.Method;
+                    proxyMetadata.UrlTemplate = route.UrlTemplate;
+
+                    proxies.Add(proxyMetadata);
+                }
+                catch (Exception ex)
+                {
+                    // log any unhandled exceptions and continue
+                    AddFunctionError(functionErrors, functionName, Utility.FlattenException(ex, includeSource: false), isFunctionShortName: true);
+                }
+            }
+
+            return proxies;
         }
 
         public Collection<FunctionMetadata> ReadProxyMetadata(ScriptHostConfiguration config, TraceWriter traceWriter, ILogger logger, Dictionary<string, Collection<string>> functionErrors, ScriptSettingsManager settingsManager = null)
@@ -947,7 +1020,7 @@ namespace Microsoft.Azure.WebJobs.Script
             {
                 string proxyJson = File.ReadAllText(proxyPath);
 
-                _proxyClient = ProxyClientFactory.Create(proxyJson);
+                _proxyClient = ProxyClientFactory.Create(proxyJson, Logger);
                 var routes = _proxyClient.GetProxyData();
 
                 foreach (var route in routes.Routes)
@@ -1142,7 +1215,7 @@ namespace Microsoft.Azure.WebJobs.Script
         private Collection<FunctionDescriptor> GetFunctionDescriptors()
         {
             var functions = ReadFunctionMetadata(ScriptConfig, TraceWriter, _startupLogger, FunctionErrors, _settingsManager);
-            var proxies = ReadProxyMetadata(ScriptConfig, TraceWriter, _startupLogger, FunctionErrors, _settingsManager);
+            var proxies = ReadProxyMetadataV2(ScriptConfig, TraceWriter, _startupLogger, FunctionErrors, _settingsManager);
 
             // TODO: temp
             foreach (var proxy in proxies)
