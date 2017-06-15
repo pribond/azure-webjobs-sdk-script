@@ -39,7 +39,7 @@ namespace Microsoft.Azure.WebJobs.Script
 
         public static bool IsAntaresInternalRequest(this HttpRequestMessage request)
         {
-            if (!ScriptSettingsManager.Instance.IsAzureEnvironment)
+            if (!ScriptSettingsManager.Instance.IsAppServiceEnvironment)
             {
                 return false;
             }

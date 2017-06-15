@@ -187,7 +187,7 @@
       <HintPath>..\..\packages\Microsoft.Azure.WebJobs.Core.2.1.0-beta1-10792\lib\net45\Microsoft.Azure.WebJobs.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.Azure.WebJobs.Extensions, Version=2.1.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Microsoft.Azure.WebJobs.Extensions.2.1.0-beta1-10450\lib\net45\Microsoft.Azure.WebJobs.Extensions.dll</HintPath>
+      <HintPath>C:\code\Git\Azure\azure-webjobs-sdk-extensions\test\WebJobs.Extensions.Tests\bin\Debug\Microsoft.Azure.WebJobs.Extensions.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.Azure.WebJobs.Extensions.ApiHub, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\..\packages\Microsoft.Azure.WebJobs.Extensions.ApiHub.1.0.0-beta4-10450\lib\net45\Microsoft.Azure.WebJobs.Extensions.ApiHub.dll</HintPath>
@@ -199,7 +199,7 @@
       <HintPath>..\..\packages\Microsoft.Azure.WebJobs.Extensions.DocumentDB.1.1.0-beta1-10450\lib\net45\Microsoft.Azure.WebJobs.Extensions.DocumentDB.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.Azure.WebJobs.Extensions.Http, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Microsoft.Azure.WebJobs.Extensions.Http.1.0.0-beta1-10450\lib\net45\Microsoft.Azure.WebJobs.Extensions.Http.dll</HintPath>
+      <HintPath>C:\code\Git\Azure\azure-webjobs-sdk-extensions\test\WebJobs.Extensions.Tests\bin\Debug\Microsoft.Azure.WebJobs.Extensions.Http.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.Azure.WebJobs.Extensions.MobileApps, Version=1.1.0.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\..\packages\Microsoft.Azure.WebJobs.Extensions.MobileApps.1.1.0-beta1-10450\lib\net45\Microsoft.Azure.WebJobs.Extensions.MobileApps.dll</HintPath>
@@ -531,6 +531,7 @@
     <Compile Include="Security\ISecretManagerFactory.cs" />
     <Compile Include="Security\ISecretsRepository.cs" />
     <Compile Include="Security\ISecretsRepositoryFactory.cs" />
+    <Compile Include="Security\KeyAuthorizationResult.cs" />
     <Compile Include="Security\KeyOperationResult.cs" />
     <Compile Include="Security\ScriptSecretsType.cs" />
     <Compile Include="Security\SecretsChangedEventArgs.cs" />
@@ -583,6 +584,7 @@
     <Content Include="App_Data\secrets\httptrigger-customroute-get.json" />
     <Content Include="App_Data\secrets\httptrigger-customroute-post.json" />
     <Content Include="App_Data\secrets\httptrigger-csharp.json" />
+    <Content Include="App_Data\secrets\httptrigger-csharp-userauth.json" />
     <None Include="App_Data\secrets\HttpTrigger.json" />
     <Content Include="App_Data\secrets\webhook-azure-csharp.json" />
     <None Include="App_Data\secrets\WebHook-Generic-CSharp.json" />

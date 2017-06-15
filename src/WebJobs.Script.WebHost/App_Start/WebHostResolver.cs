@@ -140,7 +140,7 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost
 
         private static void ReinitializeAppSettings()
         {
-            if (_settingsManager.IsAzureEnvironment)
+            if (_settingsManager.IsAppServiceEnvironment)
             {
                 // the nature of this is only add or update (not remove).
                 // so there may be settings from standby site leak over.
@@ -171,7 +171,7 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost
 
         private static void InitializeFileSystem(string scriptPath)
         {
-            if (ScriptSettingsManager.Instance.IsAzureEnvironment)
+            if (ScriptSettingsManager.Instance.IsAppServiceEnvironment)
             {
                 // When running on Azure, we kick this off on the background
                 Task.Run(() =>

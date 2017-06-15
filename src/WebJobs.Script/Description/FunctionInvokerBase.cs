@@ -10,6 +10,7 @@ using System.IO;
 using System.Linq;
 using System.Reactive.Linq;
 using System.Runtime.ExceptionServices;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.Azure.WebJobs.Host;
 using Microsoft.Azure.WebJobs.Logging;
@@ -118,6 +119,7 @@ namespace Microsoft.Azure.WebJobs.Script.Description
             TraceWriter functionTraceWriter = parameters.OfType<TraceWriter>().FirstOrDefault();
             Binder binder = parameters.OfType<Binder>().FirstOrDefault();
             ILogger logger = parameters.OfType<ILogger>().FirstOrDefault();
+            ClaimsIdentity identity = parameters.OfType<ClaimsIdentity>().FirstOrDefault();
             string invocationId = functionExecutionContext.InvocationId.ToString();
 
             var startedEvent = new FunctionStartedEvent(functionExecutionContext.InvocationId, Metadata);
@@ -134,6 +136,7 @@ namespace Microsoft.Azure.WebJobs.Script.Description
 
                 FunctionInvocationContext context = new FunctionInvocationContext
                 {
+                    Identity = identity,
                     ExecutionContext = functionExecutionContext,
                     Binder = binder,
                     TraceWriter = functionTraceWriter,
