@@ -247,12 +247,15 @@ namespace Microsoft.Azure.WebJobs.Script
         {
             if (arguments.ContainsKey(ScriptConstants.AzureFunctionsProxyHttpRequestKey))
             {
-                IFuncExecutor myFunc = new MyFuncExecutor(ScriptConfig.HostConfig, this);
+                using (_proxyLogger.BeginScope(new Dictionary<string, object>
+                {
+                    [ScopeKeys.FunctionName] = method
+                }))
+                {
+                    IFuncExecutor myFunc = new MyFuncExecutor(ScriptConfig.HostConfig, this);
 
-                // await myFunc.ExecuteFuncAsync("httpreq", arguments, cancellationToken);
-                await _proxyClient.CallAsync(arguments, myFunc, _proxyLogger);
-
-                // await Post(arguments, cancellationToken);
+                    await _proxyClient.CallAsync(arguments, myFunc, _proxyLogger);
+                }
 
                 return;
             }

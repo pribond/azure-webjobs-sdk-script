@@ -26,7 +26,7 @@ namespace Microsoft.Azure.WebJobs.Script
         {
             Type type = _config.TypeLocator.GetTypes().SingleOrDefault(p => p.Name == ScriptHost.GeneratedTypeName);
 
-            var methodInfo = type.GetMethods().SingleOrDefault(p => p.Name.ToLowerInvariant() == funcName);
+            var methodInfo = type.GetMethods().SingleOrDefault(p => p.Name.ToLowerInvariant() == funcName.ToLowerInvariant());
 
             if (methodInfo == null)
             {
