@@ -361,17 +361,13 @@ namespace Microsoft.Azure.WebJobs.Script
 
                 _debugModeFileWatcher.Changed += OnDebugModeFileChanged;
 
+                BlobLeaseManager blobManagerCreation = null;
+
                 var storageString = AmbientConnectionStringProvider.Instance.GetConnectionString(ConnectionStringNames.Storage);
-                Task<BlobLeaseManager> blobManagerCreation = null;
                 if (storageString == null)
                 {
                     // Disable core storage
                     hostConfig.StorageConnectionString = null;
-                    blobManagerCreation = Task.FromResult<BlobLeaseManager>(null);
-                }
-                else
-                {
-                    blobManagerCreation = BlobLeaseManager.CreateAsync(storageString, TimeSpan.FromSeconds(15), hostConfig.HostId, InstanceId, TraceWriter, hostConfig.LoggerFactory);
                 }
 
                 var bindingProviders = LoadBindingProviders(ScriptConfig, hostConfigObject, TraceWriter, _startupLogger);
@@ -428,9 +424,16 @@ namespace Microsoft.Azure.WebJobs.Script
 
                 LoadCustomExtensions();
 
+                // Do this after we've loaded the custom extensions. That gives an extension an opportunity to plug in their own implementations.
+                if (storageString != null)
+                {
+                    var lockManager = this.ScriptConfig.HostConfig.GetService<IDistributedLockManager>();
+                    blobManagerCreation = BlobLeaseManager.Create(lockManager, TimeSpan.FromSeconds(15), hostConfig.HostId, InstanceId, TraceWriter, hostConfig.LoggerFactory);
+                }
+
                 // Create the lease manager that will keep handle the primary host blob lease acquisition and renewal
                 // and subscribe for change notifications.
-                _blobLeaseManager = blobManagerCreation.GetAwaiter().GetResult();
+                _blobLeaseManager = blobManagerCreation;
                 if (_blobLeaseManager != null)
                 {
                     _blobLeaseManager.HasLeaseChanged += BlobLeaseManagerHasLeaseChanged;

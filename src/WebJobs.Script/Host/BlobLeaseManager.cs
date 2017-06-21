@@ -26,21 +26,24 @@ namespace Microsoft.Azure.WebJobs.Script
         private readonly ILogger _logger;
         private readonly string _hostId;
         private readonly string _instanceId;
-        private ICloudBlob _lockBlob;
-        private string _leaseId;
+        private IDistributedLock _lockHandle; // If non-null, then we own the lock.
+
         private bool _disposed;
         private bool _processingLease;
         private DateTime _lastRenewal;
         private TimeSpan _lastRenewalLatency;
 
-        internal BlobLeaseManager(ICloudBlob lockBlob, TimeSpan leaseTimeout, string hostId, string instanceId, TraceWriter traceWriter,
+        private IDistributedLockManager _lockManager;
+
+        internal BlobLeaseManager(IDistributedLockManager lockManager, TimeSpan leaseTimeout, string hostId, string instanceId, TraceWriter traceWriter,
             ILoggerFactory loggerFactory, TimeSpan? renewalInterval = null)
         {
-            _lockBlob = lockBlob;
             _leaseTimeout = leaseTimeout;
             _traceWriter = traceWriter;
             _hostId = hostId;
             _instanceId = instanceId;
+
+            _lockManager = lockManager;
 
             // Renew the lease three seconds before it expires
             _renewalInterval = renewalInterval ?? leaseTimeout.Add(TimeSpan.FromSeconds(-3));
@@ -55,21 +58,21 @@ namespace Microsoft.Azure.WebJobs.Script
 
         public event EventHandler HasLeaseChanged;
 
-        public bool HasLease => _leaseId != null;
+        public bool HasLease => _lockHandle != null;
 
-        public string LeaseId
+        internal IDistributedLock LockHandle
         {
             get
             {
-                return _leaseId;
+                return _lockHandle;
             }
 
-            private set
+            set
             {
-                string previousId = _leaseId;
-                _leaseId = value;
+                var previous = _lockHandle;
+                _lockHandle = value;
 
-                if (string.Compare(previousId, _leaseId, StringComparison.OrdinalIgnoreCase) != 0)
+                if (previous != _lockHandle)
                 {
                     OnHasLeaseChanged();
                 }
@@ -78,7 +81,7 @@ namespace Microsoft.Azure.WebJobs.Script
 
         private void OnHasLeaseChanged() => HasLeaseChanged?.Invoke(this, EventArgs.Empty);
 
-        public static async Task<BlobLeaseManager> CreateAsync(string accountConnectionString, TimeSpan leaseTimeout, string hostId, string instanceId,
+        public static BlobLeaseManager Create(IDistributedLockManager lockManager, TimeSpan leaseTimeout, string hostId, string instanceId,
             TraceWriter traceWriter, ILoggerFactory loggerFactory)
         {
             if (leaseTimeout.TotalSeconds < 15 || leaseTimeout.TotalSeconds > 60)
@@ -86,14 +89,8 @@ namespace Microsoft.Azure.WebJobs.Script
                 throw new ArgumentOutOfRangeException(nameof(leaseTimeout), $"The {nameof(leaseTimeout)} should be between 15 and 60 seconds");
             }
 
-            ICloudBlob blob = await GetLockBlobAsync(accountConnectionString, GetBlobName(hostId));
-            var manager = new BlobLeaseManager(blob, leaseTimeout, hostId, instanceId, traceWriter, loggerFactory);
+            var manager = new BlobLeaseManager(lockManager, leaseTimeout, hostId, instanceId, traceWriter, loggerFactory);
             return manager;
-        }
-
-        public static BlobLeaseManager Create(string accountConnectionString, TimeSpan leaseTimeout, string hostId, string instanceId, TraceWriter traceWriter, ILoggerFactory loggerFactory)
-        {
-            return CreateAsync(accountConnectionString, leaseTimeout, hostId, instanceId, traceWriter, loggerFactory).GetAwaiter().GetResult();
         }
 
         private void ProcessLeaseTimerTick(object state)
@@ -123,62 +120,47 @@ namespace Microsoft.Azure.WebJobs.Script
 
         private async Task AcquireOrRenewLeaseAsync()
         {
-            try
+            string lockName = GetBlobName(_hostId);
+
+            DateTime requestStart = DateTime.UtcNow;
+            if (HasLease)
             {
-                DateTime requestStart = DateTime.UtcNow;
-                if (HasLease)
+                try
                 {
-                    await _lockBlob.RenewLeaseAsync(new AccessCondition { LeaseId = LeaseId });
+                    await _lockManager.RenewAsync(this.LockHandle, CancellationToken.None);
+
                     _lastRenewal = DateTime.UtcNow;
                     _lastRenewalLatency = _lastRenewal - requestStart;
                 }
-                else
+                catch
                 {
-                    LeaseId = await _lockBlob.AcquireLeaseAsync(_leaseTimeout, _instanceId);
-                    _lastRenewal = DateTime.UtcNow;
-                    _lastRenewalLatency = _lastRenewal - requestStart;
-
-                    string message = $"Host lock lease acquired by instance ID '{_instanceId}'.";
-                    _traceWriter.Info(message);
-                    _logger?.LogInformation(message);
-
-                    // We've successfully acquired the lease, change the timer to use our renewal interval
-                    SetTimerInterval(_renewalInterval);
+                    // The lease was 'stolen'. Log details for debugging.
+                    string lastRenewalFormatted = _lastRenewal.ToString("yyyy-MM-ddTHH:mm:ss.FFFZ", CultureInfo.InvariantCulture);
+                    int millisecondsSinceLastSuccess = (int)(DateTime.UtcNow - _lastRenewal).TotalMilliseconds;
+                    int lastRenewalMilliseconds = (int)_lastRenewalLatency.TotalMilliseconds;
+                    ProcessLeaseError($"Another host has acquired the lease. The last successful renewal completed at {lastRenewalFormatted} ({millisecondsSinceLastSuccess} milliseconds ago) with a duration of {lastRenewalMilliseconds} milliseconds.");
                 }
             }
-            catch (StorageException exc)
+            else
             {
-                if (exc.RequestInformation.HttpStatusCode == 409)
+                // LockManager will handle various cases like 500s, 404s, retry if container doesn't exist, etc.
+                this.LockHandle = await _lockManager.TryLockAsync(null, lockName, _hostId, _leaseTimeout, CancellationToken.None);
+                if (this.LockHandle == null)
                 {
-                    // If we did not have the lease already, a 409 indicates that another host had it. This is
-                    // normal and does not warrant any logging.
+                    // We didn't have the lease and failed to acquire it. Common if somebody else already has it.
+                    // This is normal and does not warrant any logging.
+                    return;
+                }
 
-                    if (HasLease)
-                    {
-                        // The lease was 'stolen'. Log details for debugging.
-                        string lastRenewalFormatted = _lastRenewal.ToString("yyyy-MM-ddTHH:mm:ss.FFFZ", CultureInfo.InvariantCulture);
-                        int millisecondsSinceLastSuccess = (int)(DateTime.UtcNow - _lastRenewal).TotalMilliseconds;
-                        int lastRenewalMilliseconds = (int)_lastRenewalLatency.TotalMilliseconds;
-                        ProcessLeaseError($"Another host has acquired the lease. The last successful renewal completed at {lastRenewalFormatted} ({millisecondsSinceLastSuccess} milliseconds ago) with a duration of {lastRenewalMilliseconds} milliseconds.");
-                    }
-                }
-                else if (exc.RequestInformation.HttpStatusCode >= 500)
-                {
-                    ProcessLeaseError($"Server error {exc.RequestInformation.HttpStatusMessage}.");
-                }
-                else if (exc.RequestInformation.HttpStatusCode == 404)
-                {
-                    // The blob or container do not exist, reset the lease information
-                    ResetLease();
+                _lastRenewal = DateTime.UtcNow;
+                _lastRenewalLatency = _lastRenewal - requestStart;
 
-                    // Create the blob and retry
-                    _lockBlob = await GetLockBlobAsync(_lockBlob.ServiceClient, GetBlobName(_hostId));
-                    await AcquireOrRenewLeaseAsync();
-                }
-                else
-                {
-                    throw;
-                }
+                string message = $"Host lock lease acquired by instance ID '{_instanceId}'.";
+                _traceWriter.Info(message);
+                _logger?.LogInformation(message);
+
+                // We've successfully acquired the lease, change the timer to use our renewal interval
+                SetTimerInterval(_renewalInterval);
             }
         }
 
@@ -202,48 +184,9 @@ namespace Microsoft.Azure.WebJobs.Script
             }
         }
 
-        private static async Task<ICloudBlob> GetLockBlobAsync(string accountConnectionString, string blobName)
-        {
-            CloudStorageAccount account = CloudStorageAccount.Parse(accountConnectionString);
-            CloudBlobClient client = account.CreateCloudBlobClient();
-
-            return await GetLockBlobAsync(client, blobName);
-        }
-
-        private static async Task<ICloudBlob> GetLockBlobAsync(CloudBlobClient client, string blobName)
-        {
-            var container = client.GetContainerReference(HostContainerName);
-
-            try
-            {
-                await container.CreateIfNotExistsAsync();
-            }
-            catch (StorageException exc)
-            when (exc.RequestInformation.HttpStatusCode == 409 && string.Compare("ContainerBeingDeleted", exc.RequestInformation.ExtendedErrorInformation?.ErrorCode) == 0)
-            {
-                throw new StorageException("The host container is pending deletion and currently inaccessible.");
-            }
-
-            CloudBlockBlob blob = container.GetBlockBlobReference(blobName);
-            if (!await blob.ExistsAsync())
-            {
-                try
-                {
-                    await blob.UploadFromStreamAsync(new MemoryStream());
-                }
-                catch (StorageException exc)
-                when (exc.RequestInformation.HttpStatusCode == 412 || exc.RequestInformation.HttpStatusCode == 409)
-                {
-                    // The blob already exists or a lease has already been acquired.
-                }
-            }
-
-            return blob;
-        }
-
         private void ResetLease()
         {
-            LeaseId = null;
+            this.LockHandle = null;
             SetTimerInterval(_leaseRetryInterval);
         }
 
@@ -258,7 +201,8 @@ namespace Microsoft.Azure.WebJobs.Script
             {
                 if (HasLease)
                 {
-                    _lockBlob.ReleaseLease(new AccessCondition { LeaseId = LeaseId });
+                    Task.Run(() => _lockManager.ReleaseLockAsync(_lockHandle, CancellationToken.None)).GetAwaiter().GetResult();
+
                     string message = $"Host instance '{_instanceId}' released lock lease.";
                     _traceWriter.Verbose(message);
                     _logger?.LogDebug(message);
