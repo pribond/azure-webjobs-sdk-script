@@ -81,15 +81,21 @@ namespace Microsoft.Azure.WebJobs.Script
 
         private void OnHasLeaseChanged() => HasLeaseChanged?.Invoke(this, EventArgs.Empty);
 
-        public static BlobLeaseManager Create(IDistributedLockManager lockManager, TimeSpan leaseTimeout, string hostId, string instanceId,
-            TraceWriter traceWriter, ILoggerFactory loggerFactory)
+        public static BlobLeaseManager Create(
+            IDistributedLockManager lockManager,
+            TimeSpan leaseTimeout,
+            string hostId,
+            string instanceId,
+            TraceWriter traceWriter,
+            ILoggerFactory loggerFactory,
+            TimeSpan? renewalInterval = null)
         {
             if (leaseTimeout.TotalSeconds < 15 || leaseTimeout.TotalSeconds > 60)
             {
                 throw new ArgumentOutOfRangeException(nameof(leaseTimeout), $"The {nameof(leaseTimeout)} should be between 15 and 60 seconds");
             }
 
-            var manager = new BlobLeaseManager(lockManager, leaseTimeout, hostId, instanceId, traceWriter, loggerFactory);
+            var manager = new BlobLeaseManager(lockManager, leaseTimeout, hostId, instanceId, traceWriter, loggerFactory, renewalInterval);
             return manager;
         }
 
@@ -144,7 +150,8 @@ namespace Microsoft.Azure.WebJobs.Script
             else
             {
                 // LockManager will handle various cases like 500s, 404s, retry if container doesn't exist, etc.
-                this.LockHandle = await _lockManager.TryLockAsync(null, lockName, _hostId, _leaseTimeout, CancellationToken.None);
+                string proposedLeaseId = _instanceId;
+                this.LockHandle = await _lockManager.TryLockAsync(null, lockName, _instanceId, proposedLeaseId, _leaseTimeout, CancellationToken.None);
                 if (this.LockHandle == null)
                 {
                     // We didn't have the lease and failed to acquire it. Common if somebody else already has it.
