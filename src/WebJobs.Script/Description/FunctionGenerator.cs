@@ -52,7 +52,6 @@ namespace Microsoft.Azure.WebJobs.Script.Description
             foreach (FunctionDescriptor function in functions)
             {
                 MethodBuilder methodBuilder = tb.DefineMethod(function.Name, MethodAttributes.Public | MethodAttributes.Static);
-
                 Type[] types = function.Parameters.Select(p => p.Type).ToArray();
                 methodBuilder.SetParameters(types);
                 methodBuilder.SetReturnType(typeof(Task));

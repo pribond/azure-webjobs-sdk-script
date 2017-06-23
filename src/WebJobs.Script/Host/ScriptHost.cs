@@ -1173,25 +1173,21 @@ namespace Microsoft.Azure.WebJobs.Script
 
         internal static void ValidateFunction(FunctionDescriptor function, Dictionary<string, HttpTriggerAttribute> httpFunctions)
         {
-            // TODO: InputBindings for triggers
-            if (function.InputBindings != null)
+            var httpTrigger = function.GetTriggerAttributeOrNull<HttpTriggerAttribute>();
+            if (httpTrigger != null)
             {
-                var httpTrigger = function.GetTriggerAttributeOrNull<HttpTriggerAttribute>();
-                if (httpTrigger != null)
-                {
-                    ValidateHttpFunction(function.Name, httpTrigger);
+                ValidateHttpFunction(function.Name, httpTrigger);
 
-                    // prevent duplicate/conflicting routes
-                    foreach (var pair in httpFunctions)
+                // prevent duplicate/conflicting routes
+                foreach (var pair in httpFunctions)
+            {
+                if (HttpRoutesConflict(httpTrigger, pair.Value))
                 {
-                    if (HttpRoutesConflict(httpTrigger, pair.Value))
-                    {
-                        throw new InvalidOperationException($"The route specified conflicts with the route defined by function '{pair.Key}'.");
-                    }
+                    throw new InvalidOperationException($"The route specified conflicts with the route defined by function '{pair.Key}'.");
                 }
+            }
 
-                    httpFunctions.Add(function.Name, httpTrigger);
-                }
+                httpFunctions.Add(function.Name, httpTrigger);
             }
         }
 
