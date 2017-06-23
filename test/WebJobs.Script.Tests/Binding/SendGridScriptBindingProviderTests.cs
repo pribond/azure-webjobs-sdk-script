@@ -25,7 +25,8 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
             JObject hostMetadata = new JObject();
 
             var provider = new GeneralScriptBindingProvider(config, hostMetadata, traceWriter);
-            provider.CompleteInitialization();
+            var metadataProvider = new JobHost(config).CreateMetadataProvider();
+            provider.CompleteInitialization(metadataProvider);
             _provider = provider;
         }
 

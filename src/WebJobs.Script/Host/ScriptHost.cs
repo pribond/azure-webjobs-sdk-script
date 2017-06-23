@@ -503,7 +503,8 @@ namespace Microsoft.Azure.WebJobs.Script
             // There's a single script binding instance that services all extensions.
             // give that script binding the metadata for all loaded extensions so it can dispatch to them.
             var generalProvider = ScriptConfig.BindingProviders.OfType<GeneralScriptBindingProvider>().First();
-            generalProvider.CompleteInitialization();
+            var metadataProvider = this.CreateMetadataProvider();
+            generalProvider.CompleteInitialization(metadataProvider);
         }
 
         private void LoadExtensions(Assembly assembly, string locationHint)

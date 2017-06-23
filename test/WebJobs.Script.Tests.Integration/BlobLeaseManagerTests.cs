@@ -23,8 +23,8 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
         private static IDistributedLockManager CreateLockManager()
         {
             JobHostConfiguration config = new JobHostConfiguration();
-            config.CreateMetadataProvider();
-            var lockManager = config.GetService<IDistributedLockManager>();
+            var host = new JobHost(config);
+            var lockManager = (IDistributedLockManager)host.GetService(typeof(IDistributedLockManager));
             return lockManager;
         }
 
