@@ -7,15 +7,19 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Microsoft.Azure.AppService.AdvancedRouting.Gateway.Client;
 using Microsoft.Azure.WebJobs.Script.Binding;
 
 namespace Microsoft.Azure.WebJobs.Script.Description
 {
-    internal sealed class ProxyFunctionDescriptorProvider : FunctionDescriptorProvider, IDisposable
+    internal sealed class ProxyFunctionDescriptorProvider : FunctionDescriptorProvider
     {
-        public ProxyFunctionDescriptorProvider(ScriptHost host, ScriptHostConfiguration config)
+        private IProxyClient _proxyClient;
+
+        public ProxyFunctionDescriptorProvider(ScriptHost host, ScriptHostConfiguration config, IProxyClient proxyClient)
             : base(host, config)
         {
+            _proxyClient = proxyClient;
         }
 
         public override bool TryCreate(FunctionMetadata functionMetadata, out FunctionDescriptor functionDescriptor)
@@ -34,9 +38,7 @@ namespace Microsoft.Azure.WebJobs.Script.Description
 
             if (functionMetadata.ScriptType == ScriptType.Proxy)
             {
-                functionDescriptor = new FunctionDescriptor(functionMetadata.Name, null, functionMetadata, null, null, null, null);
-
-                return true;
+                return base.TryCreate(functionMetadata, out functionDescriptor);
             }
 
             return false;
@@ -44,12 +46,7 @@ namespace Microsoft.Azure.WebJobs.Script.Description
 
         protected override IFunctionInvoker CreateFunctionInvoker(string scriptFilePath, BindingMetadata triggerMetadata, FunctionMetadata functionMetadata, Collection<FunctionBinding> inputBindings, Collection<FunctionBinding> outputBindings)
         {
-            throw new NotImplementedException();
-        }
-
-        public void Dispose()
-        {
-            throw new NotImplementedException();
+            return new ProxyFunctionInvoker(Host, functionMetadata, _proxyClient);
         }
     }
 }

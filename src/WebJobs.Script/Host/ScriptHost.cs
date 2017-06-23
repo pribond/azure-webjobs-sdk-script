@@ -66,7 +66,6 @@ namespace Microsoft.Azure.WebJobs.Script
         private IDisposable _fileEventsSubscription;
 
         private IProxyClient _proxyClient;
-        private ILogger _proxyLogger;
 
         protected internal ScriptHost(IScriptHostEnvironment environment,
             IScriptEventManager eventManager,
@@ -242,21 +241,6 @@ namespace Microsoft.Azure.WebJobs.Script
 
         public virtual async Task CallAsync(string method, Dictionary<string, object> arguments, CancellationToken cancellationToken = default(CancellationToken))
         {
-            if (arguments.ContainsKey(ScriptConstants.AzureFunctionsProxyHttpRequestKey))
-            {
-                using (_proxyLogger.BeginScope(new Dictionary<string, object>
-                {
-                    [ScopeKeys.FunctionName] = method
-                }))
-                {
-                    IFuncExecutor myFunc = new FunctionExecutor(ScriptConfig.HostConfig, this);
-
-                    await _proxyClient.CallAsync(arguments, myFunc, _proxyLogger);
-                }
-
-                return;
-            }
-
             // TODO: Validate inputs
             // TODO: Cache this lookup result
             method = method.ToLowerInvariant();
@@ -932,9 +916,6 @@ namespace Microsoft.Azure.WebJobs.Script
             _proxyClient = ProxyClientFactory.Create(proxyJsons, proxyStartupLogger);
             var routes = _proxyClient.GetProxyData();
 
-            // TODO: proper location
-            _proxyLogger = loggerFactory.CreateLogger("Host.Proxies.Runtime");
-
             foreach (var route in routes.Routes)
             {
                 string functionName = null;
@@ -943,7 +924,12 @@ namespace Microsoft.Azure.WebJobs.Script
                 {
                     var proxyMetadata = new ProxyMetadata();
 
-                    proxyMetadata.Name = route.Id.ToString();
+                    // TODO : is this ok?
+                    BindingMetadata bindingMetadata = BindingMetadata.Create(JObject.Parse("{\"authLevel\": \"anonymous\",\"name\": \"req\",\"type\": \"httptrigger\",\"direction\": \"in\"}"));
+
+                    proxyMetadata.Bindings.Add(bindingMetadata);
+
+                    proxyMetadata.Name = route.Name + "_" + route.Id.ToString();
                     proxyMetadata.ScriptType = ScriptType.Proxy;
 
                     proxyMetadata.Method = route.Method;
@@ -1144,7 +1130,7 @@ namespace Microsoft.Azure.WebJobs.Script
 #if FEATURE_POWERSHELL
                     new PowerShellFunctionDescriptorProvider(this, ScriptConfig),
 #endif
-                    new ProxyFunctionDescriptorProvider(this, ScriptConfig)
+                    new ProxyFunctionDescriptorProvider(this, ScriptConfig, _proxyClient)
                 };
 
             return GetFunctionDescriptors(functions, descriptorProviders);
