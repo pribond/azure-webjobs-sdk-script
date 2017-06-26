@@ -13,7 +13,8 @@ using Microsoft.WindowsAzure.Storage.Blob;
 
 namespace Microsoft.Azure.WebJobs.Script
 {
-    internal sealed class BlobLeaseManager : IDisposable
+    // This is used to determine which host instance is the "Primary"
+    internal sealed class PrimaryHostCoordinator : IDisposable
     {
         internal const string LockBlobName = "host";
         internal const string HostContainerName = "azure-webjobs-hosts";
@@ -35,7 +36,7 @@ namespace Microsoft.Azure.WebJobs.Script
 
         private IDistributedLockManager _lockManager;
 
-        internal BlobLeaseManager(IDistributedLockManager lockManager, TimeSpan leaseTimeout, string hostId, string instanceId, TraceWriter traceWriter,
+        internal PrimaryHostCoordinator(IDistributedLockManager lockManager, TimeSpan leaseTimeout, string hostId, string instanceId, TraceWriter traceWriter,
             ILoggerFactory loggerFactory, TimeSpan? renewalInterval = null)
         {
             _leaseTimeout = leaseTimeout;
@@ -81,7 +82,7 @@ namespace Microsoft.Azure.WebJobs.Script
 
         private void OnHasLeaseChanged() => HasLeaseChanged?.Invoke(this, EventArgs.Empty);
 
-        public static BlobLeaseManager Create(
+        public static PrimaryHostCoordinator Create(
             IDistributedLockManager lockManager,
             TimeSpan leaseTimeout,
             string hostId,
@@ -95,7 +96,7 @@ namespace Microsoft.Azure.WebJobs.Script
                 throw new ArgumentOutOfRangeException(nameof(leaseTimeout), $"The {nameof(leaseTimeout)} should be between 15 and 60 seconds");
             }
 
-            var manager = new BlobLeaseManager(lockManager, leaseTimeout, hostId, instanceId, traceWriter, loggerFactory, renewalInterval);
+            var manager = new PrimaryHostCoordinator(lockManager, leaseTimeout, hostId, instanceId, traceWriter, loggerFactory, renewalInterval);
             return manager;
         }
 
@@ -133,7 +134,7 @@ namespace Microsoft.Azure.WebJobs.Script
             {
                 try
                 {
-                    await _lockManager.RenewAsync(this.LockHandle, CancellationToken.None);
+                    await _lockManager.RenewAsync(LockHandle, CancellationToken.None);
 
                     _lastRenewal = DateTime.UtcNow;
                     _lastRenewalLatency = _lastRenewal - requestStart;
@@ -149,10 +150,9 @@ namespace Microsoft.Azure.WebJobs.Script
             }
             else
             {
-                // LockManager will handle various cases like 500s, 404s, retry if container doesn't exist, etc.
                 string proposedLeaseId = _instanceId;
-                this.LockHandle = await _lockManager.TryLockAsync(null, lockName, _instanceId, proposedLeaseId, _leaseTimeout, CancellationToken.None);
-                if (this.LockHandle == null)
+                LockHandle = await _lockManager.TryLockAsync(null, lockName, _instanceId, proposedLeaseId, _leaseTimeout, CancellationToken.None);
+                if (LockHandle == null)
                 {
                     // We didn't have the lease and failed to acquire it. Common if somebody else already has it.
                     // This is normal and does not warrant any logging.
@@ -193,7 +193,7 @@ namespace Microsoft.Azure.WebJobs.Script
 
         private void ResetLease()
         {
-            this.LockHandle = null;
+            LockHandle = null;
             SetTimerInterval(_leaseRetryInterval);
         }
 

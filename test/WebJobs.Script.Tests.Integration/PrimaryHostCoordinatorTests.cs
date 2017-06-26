@@ -17,7 +17,7 @@ using Xunit;
 
 namespace Microsoft.Azure.WebJobs.Script.Tests
 {
-    public class BlobLeaseManagerTests
+    public class PrimaryHostCoordinatorTests
     {
         // Helper to get a real Blob Lease based IDistributedLockManager
         private static IDistributedLockManager CreateLockManager()
@@ -36,7 +36,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
             string instanceId = Guid.NewGuid().ToString();
             var traceWriter = new TestTraceWriter(System.Diagnostics.TraceLevel.Verbose);
 
-            using (var manager = BlobLeaseManager.Create(CreateLockManager(), TimeSpan.FromSeconds(15), hostId, instanceId, traceWriter, null))
+            using (var manager = PrimaryHostCoordinator.Create(CreateLockManager(), TimeSpan.FromSeconds(15), hostId, instanceId, traceWriter, null))
             {
                 await TestHelpers.Await(() => manager.HasLease);
             }
@@ -58,11 +58,11 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
             // Acquire a lease on the host lock blob
             string leaseId = await blob.AcquireLeaseAsync(TimeSpan.FromSeconds(15));
 
-            BlobLeaseManager manager = null;
+            PrimaryHostCoordinator manager = null;
 
             try
             {
-                manager = BlobLeaseManager.Create(CreateLockManager(), TimeSpan.FromSeconds(15), hostId, instanceId, traceWriter, null);
+                manager = PrimaryHostCoordinator.Create(CreateLockManager(), TimeSpan.FromSeconds(15), hostId, instanceId, traceWriter, null);
                 manager.HasLeaseChanged += (s, a) => resetEvent.Set();
             }
             finally
@@ -73,13 +73,10 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
             resetEvent.Wait(TimeSpan.FromSeconds(15));
             bool hasLease = manager.HasLease;
 
-            // string actualLeaseId = manager.LeaseId;
             manager.Dispose();
 
             Assert.True(resetEvent.IsSet);
-            Assert.True(hasLease, $"{nameof(BlobLeaseManager.HasLease)} was not correctly set to 'true' when lease was acquired.");
-
-            // Assert.Equal(instanceId, actualLeaseId);
+            Assert.True(hasLease, $"{nameof(PrimaryHostCoordinator.HasLease)} was not correctly set to 'true' when lease was acquired.");
 
             await ClearLeaseBlob(hostId);
         }
@@ -95,12 +92,12 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
             var traceWriter = new TestTraceWriter(TraceLevel.Verbose);
             var resetEvent = new ManualResetEventSlim();
 
-            BlobLeaseManager manager = null;
+            PrimaryHostCoordinator manager = null;
             string tempLeaseId = null;
 
             var lockManager = CreateLockManager();
             var renewalInterval = TimeSpan.FromSeconds(3);
-            using (manager = BlobLeaseManager.Create(lockManager, TimeSpan.FromSeconds(15), hostId, instanceId, traceWriter, null, renewalInterval))
+            using (manager = PrimaryHostCoordinator.Create(lockManager, TimeSpan.FromSeconds(15), hostId, instanceId, traceWriter, null, renewalInterval))
             {
                 try
                 {
@@ -124,7 +121,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
             }
 
             Assert.True(resetEvent.IsSet);
-            Assert.False(manager.HasLease, $"{nameof(BlobLeaseManager.HasLease)} was not correctly set to 'false' when lease lost.");
+            Assert.False(manager.HasLease, $"{nameof(PrimaryHostCoordinator.HasLease)} was not correctly set to 'false' when lease lost.");
 
             await ClearLeaseBlob(hostId);
         }
@@ -139,7 +136,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
             var traceWriter = new TestTraceWriter(System.Diagnostics.TraceLevel.Verbose);
 
             var lockManager = CreateLockManager();
-            using (var manager = BlobLeaseManager.Create(lockManager, TimeSpan.FromSeconds(15), hostId, instanceId, traceWriter, null))
+            using (var manager = PrimaryHostCoordinator.Create(lockManager, TimeSpan.FromSeconds(15), hostId, instanceId, traceWriter, null))
             {
                 await TestHelpers.Await(() => manager.HasLease);
             }
@@ -176,7 +173,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
                 It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
                 .Returns(() => Task.FromResult<IDistributedLock>(new FakeLock()));
 
-            using (var manager = new BlobLeaseManager(blobMock.Object, TimeSpan.FromSeconds(5), hostId, instanceId, traceWriter, null))
+            using (var manager = new PrimaryHostCoordinator(blobMock.Object, TimeSpan.FromSeconds(5), hostId, instanceId, traceWriter, null))
             {
                 renewResetEvent.Wait(TimeSpan.FromSeconds(10));
 
@@ -206,7 +203,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
                 .Returns(() => Task.FromException<bool>(new StorageException(new RequestResult { HttpStatusCode = 409 }, "test", null)))
                 .Callback(() => renewResetEvent.Set());
 
-            using (var manager = new BlobLeaseManager(blobMock.Object, TimeSpan.FromSeconds(5), hostId, instanceId, traceWriter, null))
+            using (var manager = new PrimaryHostCoordinator(blobMock.Object, TimeSpan.FromSeconds(5), hostId, instanceId, traceWriter, null))
             {
                 renewResetEvent.Wait(TimeSpan.FromSeconds(10));
                 await TestHelpers.Await(() => traceWriter.Traces.Count == 2, 5000, 500);
@@ -232,8 +229,8 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
             var traceWriter = new TestTraceWriter(TraceLevel.Verbose);
 
             var lockManager = CreateLockManager();
-            using (var manager1 = BlobLeaseManager.Create(lockManager, TimeSpan.FromSeconds(15), hostId1, instanceId, traceWriter, null))
-            using (var manager2 = BlobLeaseManager.Create(lockManager, TimeSpan.FromSeconds(15), hostId2, instanceId, traceWriter, null))
+            using (var manager1 = PrimaryHostCoordinator.Create(lockManager, TimeSpan.FromSeconds(15), hostId1, instanceId, traceWriter, null))
+            using (var manager2 = PrimaryHostCoordinator.Create(lockManager, TimeSpan.FromSeconds(15), hostId2, instanceId, traceWriter, null))
             {
                 Task manager1Check = TestHelpers.Await(() => manager1.HasLease);
                 Task manager2Check = TestHelpers.Await(() => manager2.HasLease);
@@ -249,10 +246,10 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
             CloudStorageAccount account = CloudStorageAccount.Parse(accountConnectionString);
             CloudBlobClient client = account.CreateCloudBlobClient();
 
-            var container = client.GetContainerReference(BlobLeaseManager.HostContainerName);
+            var container = client.GetContainerReference(PrimaryHostCoordinator.HostContainerName);
 
             await container.CreateIfNotExistsAsync();
-            CloudBlockBlob blob = container.GetBlockBlobReference(BlobLeaseManager.GetBlobName(hostId));
+            CloudBlockBlob blob = container.GetBlockBlobReference(PrimaryHostCoordinator.GetBlobName(hostId));
             if (!await blob.ExistsAsync())
             {
                 await blob.UploadFromStreamAsync(new MemoryStream());
