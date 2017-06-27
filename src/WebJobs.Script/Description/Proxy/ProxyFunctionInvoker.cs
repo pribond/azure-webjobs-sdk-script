@@ -21,12 +21,7 @@ namespace Microsoft.Azure.WebJobs.Script.Description
 
         protected override async Task InvokeCore(object[] parameters, FunctionInvocationContext context)
         {
-            Dictionary<string, object> arguments = new Dictionary<string, object>();
-
-            // TODO: temp
-            arguments.Add(ScriptConstants.AzureFunctionsProxyHttpRequestKey, parameters[0]);
-
-            await _proxyClient.CallAsync(arguments, null, context.Logger);
+            await _proxyClient.CallAsync(parameters, null, context.Logger);
         }
     }
 }

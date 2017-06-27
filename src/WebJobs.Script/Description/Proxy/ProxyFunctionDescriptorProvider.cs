@@ -31,11 +31,6 @@ namespace Microsoft.Azure.WebJobs.Script.Description
 
             functionDescriptor = null;
 
-            if (!(functionMetadata is ProxyMetadata))
-            {
-                return false;
-            }
-
             if (functionMetadata.ScriptType == ScriptType.Proxy)
             {
                 return base.TryCreate(functionMetadata, out functionDescriptor);
