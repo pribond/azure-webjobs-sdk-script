@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Reflection;
 using Microsoft.Azure.WebJobs.Extensions.SendGrid;
 using Microsoft.Azure.WebJobs.Host.Config;
+using Microsoft.Azure.WebJobs.Script;
 using Microsoft.Azure.WebJobs.Script.Binding;
 using Microsoft.Azure.WebJobs.Script.Extensibility;
 using Newtonsoft.Json.Linq;

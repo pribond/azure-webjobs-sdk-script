@@ -24,7 +24,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
         {
             JobHostConfiguration config = new JobHostConfiguration();
             var host = new JobHost(config);
-            var lockManager = (IDistributedLockManager)host.GetService(typeof(IDistributedLockManager));
+            var lockManager = (IDistributedLockManager)host.Services.GetService(typeof(IDistributedLockManager));
             return lockManager;
         }
 
