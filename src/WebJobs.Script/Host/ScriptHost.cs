@@ -64,6 +64,15 @@ namespace Microsoft.Azure.WebJobs.Script
         private FileWatcherEventSource _fileEventSource;
         private IDisposable _fileEventsSubscription;
 
+        // Specify the "builtin binding types". These are types that are directly accesible without needing an explicit load gesture.
+        // This is the set of bindings we shipped prior to binding extensibility.
+        // Map from BindingType to the Assembly Qualified Type name for its IExtensionConfigProvider object.
+        private static IReadOnlyDictionary<string, string> _builtinBindingTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "bot", "Microsoft.Azure.WebJobs.Extensions.BotFramework.Config.BotFrameworkConfiguration, Microsoft.Azure.WebJobs.Extensions.BotFramework" },
+            { "sendgrid", "Microsoft.Azure.WebJobs.Extensions.SendGrid.SendGridConfiguration, Microsoft.Azure.WebJobs.Extensions.SendGrid" }
+        };
+
         protected internal ScriptHost(IScriptHostEnvironment environment,
             IScriptEventManager eventManager,
             ScriptHostConfiguration scriptConfig = null,
@@ -417,15 +426,11 @@ namespace Microsoft.Azure.WebJobs.Script
                     }
                 }
 
-                // Load builtin extensions
-                {
-                    var botExtension = new Extensions.BotFramework.Config.BotFrameworkConfiguration();
-                    LoadExtension(botExtension);
+                // Scan the function.json early to determine the requirements.
+                var functionMetadata = ReadFunctionMetadata(ScriptConfig, TraceWriter, _startupLogger, FunctionErrors, _settingsManager);
 
-                    var sendGridExtension = new Extensions.SendGrid.SendGridConfiguration();
-                    LoadExtension(sendGridExtension);
-                }
-
+                var usedBindingTypes = DiscoverBindingTypes(functionMetadata);
+                LoadBuiltinBindings(usedBindingTypes);
                 LoadCustomExtensions();
 
                 // Create the lease manager that will keep handle the primary host blob lease acquisition and renewal
@@ -437,7 +442,7 @@ namespace Microsoft.Azure.WebJobs.Script
                 }
 
                 // read all script functions and apply to JobHostConfiguration
-                Collection<FunctionDescriptor> functions = GetFunctionDescriptors();
+                Collection<FunctionDescriptor> functions = GetFunctionDescriptors(functionMetadata);
                 Collection<CustomAttributeBuilder> typeAttributes = CreateTypeAttributes(ScriptConfig);
                 string typeName = string.Format(CultureInfo.InvariantCulture, "{0}.{1}", GeneratedTypeNamespace, GeneratedTypeName);
 
@@ -458,6 +463,43 @@ namespace Microsoft.Azure.WebJobs.Script
                     PurgeOldLogDirectories();
                 }
             }
+        }
+
+        private void LoadBuiltinBindings(IEnumerable<string> bindingTypes)
+        {
+            foreach (var bindingType in bindingTypes)
+            {
+                string aqn;
+                if (_builtinBindingTypes.TryGetValue(bindingType, out aqn))
+                {
+                    Type typeExtension = Type.GetType(aqn);
+                    if (typeExtension == null)
+                    {
+                        string errorMsg = $"Can't find builtin provider '{aqn}' for '{bindingType}'";
+                        TraceWriter.Error(errorMsg);
+                        _startupLogger?.LogError(errorMsg);
+                    }
+                    else
+                    {
+                        IExtensionConfigProvider extension = (IExtensionConfigProvider)Activator.CreateInstance(typeExtension);
+                        LoadExtension(extension);
+                    }
+                }
+            }
+        }
+
+        private static IEnumerable<string> DiscoverBindingTypes(IEnumerable<FunctionMetadata> functions)
+        {
+            HashSet<string> bindingTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var function in functions)
+            {
+                foreach (var binding in function.InputBindings.Concat(function.OutputBindings))
+                {
+                    var bindingType = binding.Type;
+                    bindingTypes.Add(bindingType);
+                }
+            }
+            return bindingTypes;
         }
 
         private IMetricsLogger CreateMetricsLogger()
@@ -1030,10 +1072,8 @@ namespace Microsoft.Azure.WebJobs.Script
             }
         }
 
-        private Collection<FunctionDescriptor> GetFunctionDescriptors()
+        private Collection<FunctionDescriptor> GetFunctionDescriptors(Collection<FunctionMetadata> functions)
         {
-            var functions = ReadFunctionMetadata(ScriptConfig, TraceWriter, _startupLogger, FunctionErrors, _settingsManager);
-
             var descriptorProviders = new List<FunctionDescriptorProvider>()
                 {
                     new ScriptFunctionDescriptorProvider(this, ScriptConfig),
