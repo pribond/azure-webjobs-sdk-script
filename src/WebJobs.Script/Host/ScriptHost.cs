@@ -873,93 +873,54 @@ namespace Microsoft.Azure.WebJobs.Script
             return functions;
         }
 
-        public Collection<FunctionMetadata> ReadProxyMetadata(ScriptHostConfiguration config, Dictionary<string, Collection<string>> functionErrors, out object proxyClient, ScriptSettingsManager settingsManager = null)
+        public Collection<FunctionMetadata> ReadProxyMetadata(ScriptHostConfiguration config, out object proxyClient, ScriptSettingsManager settingsManager = null)
         {
             var proxies = new Collection<FunctionMetadata>();
             settingsManager = settingsManager ?? ScriptSettingsManager.Instance;
-            Dictionary<string, string> proxyJsons = new Dictionary<string, string>();
+            proxyClient = null;
 
-            foreach (var scriptDir in Directory.EnumerateDirectories(config.RootScriptPath))
+            // read the proxy config
+            string proxyConfigPath = Path.Combine(config.RootScriptPath, ScriptConstants.ProxyMetadataFileName);
+            if (!File.Exists(proxyConfigPath))
             {
-                string proxyName = null;
-
-                try
-                {
-                    // read the proxy config
-                    string proxyConfigPath = Path.Combine(scriptDir, ScriptConstants.ProxyMetadataFileName);
-                    if (!File.Exists(proxyConfigPath))
-                    {
-                        // not a proxy directory
-                        continue;
-                    }
-
-                    _isProxyPresent = true;
-
-                    proxyName = Path.GetFileName(scriptDir);
-
-                    ValidateFunctionName(proxyName);
-
-                    string json = File.ReadAllText(proxyConfigPath);
-
-                    proxyJsons.Add(proxyName, json);
-                }
-                catch (Exception ex)
-                {
-                    // log any unhandled exceptions and continue
-                    AddFunctionError(functionErrors, proxyName, Utility.FlattenException(ex, includeSource: false), isFunctionShortName: true);
-                }
+                return proxies;
             }
 
-            if (_isProxyPresent)
-            {
-                proxyClient = LoadProxyRoutes(functionErrors, proxies, proxyJsons);
-            }
-            else
-            {
-                proxyClient = null;
-            }
+            _isProxyPresent = true;
+
+            string proxiesJson = File.ReadAllText(proxyConfigPath);
+
+            LoadProxyRoutes(proxies, out proxyClient, proxiesJson);
 
             return proxies;
         }
 
-        private object LoadProxyRoutes(Dictionary<string, Collection<string>> functionErrors, Collection<FunctionMetadata> proxies, Dictionary<string, string> proxyJsons)
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void LoadProxyRoutes(Collection<FunctionMetadata> proxies, out object proxyClient, string proxiesJson)
         {
-            object proxyClient;
             ILoggerFactory loggerFactory = ScriptConfig.HostConfig.LoggerFactory;
             ILogger proxyStartupLogger = loggerFactory.CreateLogger("Host.Proxies.Initialization");
 
-            proxyClient = AppService.AdvancedRouting.Gateway.Client.ProxyClientFactory.Create(proxyJsons, proxyStartupLogger);
+            proxyClient = AppService.AdvancedRouting.Gateway.Client.ProxyClientFactory.Create(proxiesJson, proxyStartupLogger);
             var routes = ((AppService.AdvancedRouting.Gateway.Client.IProxyClient)proxyClient).GetProxyData();
 
             foreach (var route in routes.Routes)
             {
-                string functionName = null;
+                var proxyMetadata = new ProxyMetadata();
 
-                try
-                {
-                    var proxyMetadata = new ProxyMetadata();
+                // TODO : is this ok?
+                BindingMetadata bindingMetadata = BindingMetadata.Create(JObject.Parse("{\"authLevel\": \"anonymous\",\"name\": \"req\",\"type\": \"httptrigger\",\"direction\": \"in\"}"));
 
-                    // TODO : is this ok?
-                    BindingMetadata bindingMetadata = BindingMetadata.Create(JObject.Parse("{\"authLevel\": \"anonymous\",\"name\": \"req\",\"type\": \"httptrigger\",\"direction\": \"in\"}"));
+                proxyMetadata.Bindings.Add(bindingMetadata);
 
-                    proxyMetadata.Bindings.Add(bindingMetadata);
+                proxyMetadata.Name = route.Name + "_" + route.Id.ToString();
+                proxyMetadata.ScriptType = ScriptType.Proxy;
 
-                    proxyMetadata.Name = route.Name + "_" + route.Id.ToString();
-                    proxyMetadata.ScriptType = ScriptType.Proxy;
+                proxyMetadata.Method = route.Method;
+                proxyMetadata.UrlTemplate = route.UrlTemplate;
 
-                    proxyMetadata.Method = route.Method;
-                    proxyMetadata.UrlTemplate = route.UrlTemplate;
-
-                    proxies.Add(proxyMetadata);
-                }
-                catch (Exception ex)
-                {
-                    // log any unhandled exceptions and continue
-                    AddFunctionError(functionErrors, functionName, Utility.FlattenException(ex, includeSource: false), isFunctionShortName: true);
-                }
+                proxies.Add(proxyMetadata);
             }
-
-            return proxyClient;
         }
 
         internal static bool TryParseFunctionMetadata(string functionName, JObject functionConfig, TraceWriter traceWriter, ILogger logger, string scriptDirectory,
@@ -1127,9 +1088,8 @@ namespace Microsoft.Azure.WebJobs.Script
         private Collection<FunctionDescriptor> GetFunctionDescriptors()
         {
             var functions = ReadFunctionMetadata(ScriptConfig, TraceWriter, _startupLogger, FunctionErrors, _settingsManager);
-            var proxies = ReadProxyMetadata(ScriptConfig, FunctionErrors, out object proxyClient, _settingsManager);
+            var proxies = ReadProxyMetadata(ScriptConfig, out object proxyClient, _settingsManager);
 
-            // TODO: temp
             foreach (var proxy in proxies)
             {
                 functions.Add(proxy);
