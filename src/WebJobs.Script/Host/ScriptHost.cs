@@ -19,8 +19,6 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.ApplicationInsights.WindowsServer.Channel.Implementation;
-using Microsoft.Azure.AppService.AdvancedRouting.Gateway.Client;
-using Microsoft.Azure.AppService.AdvancedRouting.Proxy.Gateway;
 using Microsoft.Azure.WebJobs.Extensions;
 using Microsoft.Azure.WebJobs.Host;
 using Microsoft.Azure.WebJobs.Host.Config;
@@ -65,7 +63,7 @@ namespace Microsoft.Azure.WebJobs.Script
         private FileWatcherEventSource _fileEventSource;
         private IDisposable _fileEventsSubscription;
 
-        private IProxyClient _proxyClient;
+        private bool _isProxyPresent;
 
         protected internal ScriptHost(IScriptHostEnvironment environment,
             IScriptEventManager eventManager,
@@ -875,7 +873,7 @@ namespace Microsoft.Azure.WebJobs.Script
             return functions;
         }
 
-        public Collection<FunctionMetadata> ReadProxyMetadata(ScriptHostConfiguration config, Dictionary<string, Collection<string>> functionErrors, ScriptSettingsManager settingsManager = null)
+        public Collection<FunctionMetadata> ReadProxyMetadata(ScriptHostConfiguration config, Dictionary<string, Collection<string>> functionErrors, out object proxyClient, ScriptSettingsManager settingsManager = null)
         {
             var proxies = new Collection<FunctionMetadata>();
             settingsManager = settingsManager ?? ScriptSettingsManager.Instance;
@@ -895,6 +893,8 @@ namespace Microsoft.Azure.WebJobs.Script
                         continue;
                     }
 
+                    _isProxyPresent = true;
+
                     proxyName = Path.GetFileName(scriptDir);
 
                     ValidateFunctionName(proxyName);
@@ -910,11 +910,26 @@ namespace Microsoft.Azure.WebJobs.Script
                 }
             }
 
+            if (_isProxyPresent)
+            {
+                proxyClient = LoadProxyRoutes(functionErrors, proxies, proxyJsons);
+            }
+            else
+            {
+                proxyClient = null;
+            }
+
+            return proxies;
+        }
+
+        private object LoadProxyRoutes(Dictionary<string, Collection<string>> functionErrors, Collection<FunctionMetadata> proxies, Dictionary<string, string> proxyJsons)
+        {
+            object proxyClient;
             ILoggerFactory loggerFactory = ScriptConfig.HostConfig.LoggerFactory;
             ILogger proxyStartupLogger = loggerFactory.CreateLogger("Host.Proxies.Initialization");
 
-            _proxyClient = ProxyClientFactory.Create(proxyJsons, proxyStartupLogger);
-            var routes = _proxyClient.GetProxyData();
+            proxyClient = AppService.AdvancedRouting.Gateway.Client.ProxyClientFactory.Create(proxyJsons, proxyStartupLogger);
+            var routes = ((AppService.AdvancedRouting.Gateway.Client.IProxyClient)proxyClient).GetProxyData();
 
             foreach (var route in routes.Routes)
             {
@@ -944,7 +959,7 @@ namespace Microsoft.Azure.WebJobs.Script
                 }
             }
 
-            return proxies;
+            return proxyClient;
         }
 
         internal static bool TryParseFunctionMetadata(string functionName, JObject functionConfig, TraceWriter traceWriter, ILogger logger, string scriptDirectory,
@@ -1112,7 +1127,7 @@ namespace Microsoft.Azure.WebJobs.Script
         private Collection<FunctionDescriptor> GetFunctionDescriptors()
         {
             var functions = ReadFunctionMetadata(ScriptConfig, TraceWriter, _startupLogger, FunctionErrors, _settingsManager);
-            var proxies = ReadProxyMetadata(ScriptConfig, FunctionErrors, _settingsManager);
+            var proxies = ReadProxyMetadata(ScriptConfig, FunctionErrors, out object proxyClient, _settingsManager);
 
             // TODO: temp
             foreach (var proxy in proxies)
@@ -1128,10 +1143,14 @@ namespace Microsoft.Azure.WebJobs.Script
 #endif
                     new DotNetFunctionDescriptorProvider(this, ScriptConfig),
 #if FEATURE_POWERSHELL
-                    new PowerShellFunctionDescriptorProvider(this, ScriptConfig),
+                    new PowerShellFunctionDescriptorProvider(this, ScriptConfig)
 #endif
-                    new ProxyFunctionDescriptorProvider(this, ScriptConfig, _proxyClient)
                 };
+
+            if (_isProxyPresent)
+            {
+                descriptorProviders.Add(new ProxyFunctionDescriptorProvider(this, ScriptConfig, proxyClient));
+            }
 
             return GetFunctionDescriptors(functions, descriptorProviders);
         }

@@ -16,10 +16,10 @@ namespace Microsoft.Azure.WebJobs.Script.Description
     {
         private IProxyClient _proxyClient;
 
-        public ProxyFunctionDescriptorProvider(ScriptHost host, ScriptHostConfiguration config, IProxyClient proxyClient)
+        public ProxyFunctionDescriptorProvider(ScriptHost host, ScriptHostConfiguration config, object proxyClient)
             : base(host, config)
         {
-            _proxyClient = proxyClient;
+            _proxyClient = (IProxyClient)proxyClient;
         }
 
         public override bool TryCreate(FunctionMetadata functionMetadata, out FunctionDescriptor functionDescriptor)
