@@ -61,13 +61,32 @@ namespace Microsoft.Azure.WebJobs.Script
         /// </summary>
         /// <param name="request">The request.</param>
         /// <param name="level">The level to check.</param>
-        /// <returns>True if the request is authrized at the specified level,
+        /// <param name="keyName">Optional key name if key based auth is being used</param>
+        /// <returns>True if the request is authorized at the specified level,
         /// false otherwise.</returns>
-        public static bool HasAuthorizationLevel(this HttpRequestMessage request, AuthorizationLevel level)
+        public static bool HasAuthorizationLevel(this HttpRequestMessage request, AuthorizationLevel level, string keyName = null)
         {
-            var authorizationLevel = request.GetAuthorizationLevel();
+            if (request.IsAuthDisabled())
+            {
+                return true;
+            }
 
-            return authorizationLevel >= level || request.IsAuthDisabled();
+            var authorizationLevel = request.GetAuthorizationLevel();
+            if (authorizationLevel < level)
+            {
+                return false;
+            }
+
+            if (keyName != null)
+            {
+                string requestKeyName = request.GetPropertyOrDefault<string>(ScriptConstants.AzureFunctionsHttpRequestKeyNameKey);
+                if (string.Compare(keyName, requestKeyName) != 0)
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         public static string GetHeaderValueOrDefault(this HttpRequestMessage request, string headerName)

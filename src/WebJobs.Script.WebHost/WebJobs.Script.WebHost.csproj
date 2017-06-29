@@ -531,6 +531,7 @@
     <Compile Include="Security\ISecretManagerFactory.cs" />
     <Compile Include="Security\ISecretsRepository.cs" />
     <Compile Include="Security\ISecretsRepositoryFactory.cs" />
+    <Compile Include="Security\KeyAuthorizationResult.cs" />
     <Compile Include="Security\KeyOperationResult.cs" />
     <Compile Include="Security\ScriptSecretsType.cs" />
     <Compile Include="Security\SecretsChangedEventArgs.cs" />

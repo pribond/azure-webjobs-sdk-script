@@ -32,11 +32,11 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
             Uri uri = new Uri(string.Format("http://functions/api/foo?code={0}", keyValue));
             HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, uri);
 
-            Func<IDictionary<string, string>, string, bool> evaluator = (secrets, value) => SystemAuthorizationLevelAttribute.EvaluateKeyMatch(secrets, value, keyName);
+            Func<IDictionary<string, string>, string, string> evaluator = (secrets, value) => SystemAuthorizationLevelAttribute.GetKeyMatchOrNull(secrets, value, keyName);
 
-            AuthorizationLevel level = await AuthorizationLevelAttribute.GetAuthorizationLevelAsync(request, MockSecretManager.Object, evaluator, functionName: functionName);
+            var result = await AuthorizationLevelAttribute.GetAuthorizationResultAsync(request, MockSecretManager.Object, evaluator, functionName: functionName);
 
-            Assert.Equal(expectedLevel, level);
+            Assert.Equal(expectedLevel, result.AuthorizationLevel);
         }
 
         [Fact]

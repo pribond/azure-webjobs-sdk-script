@@ -19,11 +19,16 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost.Filters
 
         public string KeyName { get; }
 
-        protected override bool EvaluateKeyMatch(IDictionary<string, string> secrets, string keyValue)
-            => EvaluateKeyMatch(secrets, keyValue, KeyName);
+        protected override string EvaluateKeyMatch(IDictionary<string, string> secrets, string keyValue)
+            => GetKeyMatchOrNull(secrets, keyValue, KeyName);
 
-        internal static bool EvaluateKeyMatch(IDictionary<string, string> secrets, string keyValue, string keyName)
-            => secrets != null &&
-            secrets.Any(kvp => (keyName == null || string.Equals(kvp.Key, keyName, StringComparison.OrdinalIgnoreCase)) && Key.SecretValueEquals(kvp.Value, keyValue));
+        internal static string GetKeyMatchOrNull(IDictionary<string, string> secrets, string keyValue, string keyName)
+        {
+            if (secrets != null)
+            {
+                return secrets.Where(kvp => (keyName == null || string.Equals(kvp.Key, keyName, StringComparison.OrdinalIgnoreCase)) && Key.SecretValueEquals(kvp.Value, keyValue)).Select(p => p.Key).FirstOrDefault();
+            }
+            return null;
+        }
     }
 }

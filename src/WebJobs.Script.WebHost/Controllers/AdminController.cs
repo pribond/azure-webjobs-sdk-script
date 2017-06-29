@@ -218,13 +218,19 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost.Controllers
         [AllowAnonymous]
         public async Task<HttpResponseMessage> ExtensionWebHookHandler(string name, CancellationToken token)
         {
-            var provider = this._scriptHostManager.BindingWebHookProvider;
+            var provider = _scriptHostManager.BindingWebHookProvider;
 
             var handler = provider.GetHandlerOrNull(name);
             if (handler != null)
             {
-                var response = await handler.ConvertAsync(this.Request, token);
-                return response;
+                var authorizationAttribute = handler.GetType().GetCustomAttributes(true).OfType<SystemAuthorizationLevelAttribute>().SingleOrDefault();
+                if (authorizationAttribute != null &&
+                    !this.Request.HasAuthorizationLevel(AuthorizationLevel.System, authorizationAttribute.KeyName))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+                }
+
+                return await handler.ConvertAsync(this.Request, token);
             }
 
             return new HttpResponseMessage(HttpStatusCode.NotFound);
